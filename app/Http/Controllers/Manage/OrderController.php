@@ -88,13 +88,21 @@ class OrderController extends Controller
             'table.area',
             'booking',
             'staff',
-            'orderItems.menuItem.category',
+            'orderItems.menuItem',
+            'orderItems.orderItemOptions.optionValue', // ← thêm: tránh N+1 khi tính subtotal
             'payment.staff',
         ]);
 
-        $categories = Category::with(['menuItems' => function ($query) {
-            $query->where('status', 'active');
-        }])
+        $categories = Category::with([
+            'menuItems' => function ($query) {
+                $query->where('status', 'active')
+                    ->with([
+                        'optionGroups.optionValues',      // option trực tiếp của món
+                        'category.optionGroups.optionValues', // ← thêm dòng này
+                    ]);
+            },
+            'optionGroups.optionValues',
+        ])
         ->where('is_active', true)
         ->orderBy('sort_order')
         ->get();
@@ -133,34 +141,54 @@ class OrderController extends Controller
             return response()->json(['error' => 'Order này không thể thêm món'], 400);
         }
 
-        $data     = $request->validate(['menu_item_id' => 'required|exists:menu_items,id']);
-        $menuItem = MenuItem::findOrFail($data['menu_item_id']);
+        // Validate — thêm options vào
+        $data = $request->validate([
+            'menu_item_id' => 'required|exists:menu_items,id',
+            'options'      => 'nullable|array',
+            'options.*'    => 'exists:option_values,id',
+            'note'         => 'nullable|string|max:255',
+        ]);
 
-        $existingItem = $order->orderItems()
-            ->where('menu_item_id', $menuItem->id)
-            ->first();
+        $menuItem  = MenuItem::findOrFail($data['menu_item_id']);
+        $optionIds = $data['options'] ?? [];
 
-        if ($existingItem) {
-            $existingItem->increment('quantity');
-            $item = $existingItem->fresh();
-        } else {
-            $item = $order->orderItems()->create([
-                'menu_item_id' => $menuItem->id,
-                'quantity'     => 1,
-                'unit_price'   => $menuItem->price,
+        // Tạo order item
+        $item = $order->orderItems()->create([
+            'menu_item_id' => $menuItem->id,
+            'quantity'     => 1,
+            'unit_price'   => $menuItem->price,
+            'note'         => $data['note'] ?? '',
+        ]);
+
+        // Lưu từng option đã chọn vào order_item_options
+        foreach ($optionIds as $optionValueId) {
+            $optionValue = \App\Models\OptionValue::find($optionValueId);
+            $item->orderItemOptions()->create([
+                'option_value_id' => $optionValueId,
+                'extra_price'     => $optionValue->extra_price,
             ]);
         }
+
+        // Load lại để tính subtotal đúng (tránh N+1)
+        $item->load('orderItemOptions');
+
+        // Tính lại tổng toàn order
+        $order->load('orderItems.orderItemOptions');
 
         return response()->json([
             'message' => 'Thêm món thành công',
             'item'    => [
-                'id'         => $item->id,
-                'name'       => $menuItem->name,
-                'quantity'   => $item->quantity,
-                'unit_price' => $item->unit_price,
-                'subtotal'   => $item->quantity * $item->unit_price,
+                'id'          => $item->id,
+                'name'        => $menuItem->name,
+                'quantity'    => $item->quantity,
+                'unit_price'  => $item->unit_price,
+                'extra_price' => $item->orderItemOptions->sum('extra_price'),
+                'subtotal'    => $item->subtotal,
+                'options'     => $item->orderItemOptions->load('optionValue')
+                                    ->map(fn($o) => $o->optionValue->name)
+                                    ->join(', '),
             ],
-            'total' => $order->orderItems()->sum(\DB::raw('quantity * unit_price')),
+            'total' => $order->total,
         ]);
     }
 
@@ -178,24 +206,26 @@ class OrderController extends Controller
         } else {
             if ($item->quantity <= 1) {
                 $item->delete();
+                $order->load('orderItems.orderItemOptions');
                 return response()->json([
                     'message' => 'Đã xoá món',
                     'deleted' => true,
-                    'total'   => $order->orderItems()->sum(\DB::raw('quantity * unit_price')),
+                    'total'   => $order->total,
                 ]);
             }
             $item->decrement('quantity');
         }
-
+        $item->load('orderItemOptions'); // ← load để subtotal tính đúng
         $item->refresh();
 
         return response()->json([
             'message'  => 'Cập nhật thành công',
             'deleted'  => false,
             'quantity' => $item->quantity,
-            'subtotal' => $item->quantity * $item->unit_price,
-            'total'    => $order->orderItems()->sum(\DB::raw('quantity * unit_price')),
+            'subtotal' => $item->subtotal, // ← dùng subtotal thay vì quantity * unit_price
+            'total'    => tap($order)->load('orderItems.orderItemOptions')->total,
         ]);
+
     }
 
     // ── AJAX: Xoá món ──────────────────────────────────────────
@@ -207,9 +237,10 @@ class OrderController extends Controller
 
         $item->delete();
 
+        $order->load('orderItems.orderItemOptions');
         return response()->json([
             'message' => 'Đã xoá món',
-            'total'   => $order->orderItems()->sum(\DB::raw('quantity * unit_price')),
+            'total'   => $order->total,
         ]);
     }
 
@@ -225,7 +256,8 @@ class OrderController extends Controller
         }
 
         $data   = $request->validate(['method' => 'required|in:cash,card,transfer']);
-        $amount = $order->orderItems()->sum(\DB::raw('quantity * unit_price'));
+        $order->load('orderItems.orderItemOptions');
+        $amount = $order->total;
 
         $order->update(['status' => 'paid']);
 

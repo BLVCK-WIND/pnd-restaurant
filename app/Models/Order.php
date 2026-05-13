@@ -41,6 +41,6 @@ class Order extends Model
     // Tính tổng tiền order
     public function getTotalAttribute(): int
     {
-        return $this->orderItems->sum(fn($item) => $item->quantity * $item->unit_price);
+        return $this->orderItems->sum(fn($item) => $item->subtotal);    
     }
 }

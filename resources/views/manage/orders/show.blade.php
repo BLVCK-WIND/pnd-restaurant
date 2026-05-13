@@ -61,10 +61,22 @@
             <div id="order-items" class="flex-1 space-y-3 mb-4">
                 @forelse($order->orderItems as $item)
                     <div id="item-{{ $item->id }}"
-                         class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                        class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                         <div>
                             <p class="font-medium text-gray-800">{{ $item->menuItem->name }}</p>
-                            <p class="text-xs text-gray-400">{{ number_format($item->unit_price) }}đ / món</p>
+                            <p class="text-xs text-gray-400">
+                                {{ number_format($item->unit_price + $item->orderItemOptions->sum('extra_price')) }}đ / món
+                            </p>
+                            {{-- Hiện danh sách options nếu có --}}
+                            @if($item->orderItemOptions->count() > 0)
+                                <p class="text-xs text-orange-400 mt-0.5">
+                                    {{ $item->orderItemOptions->map(fn($o) => $o->optionValue->name)->join(', ') }}
+                                </p>
+                            @endif
+                            {{-- Hiện ghi chú nếu có --}}
+                            @if($item->note)
+                                <p class="text-xs text-gray-400 italic mt-0.5">📝 {{ $item->note }}</p>
+                            @endif
                         </div>
                         <div class="flex items-center gap-2">
                             @if($order->status === 'open')
@@ -89,7 +101,7 @@
 
                             <span id="subtotal-{{ $item->id }}"
                                   class="w-24 text-right font-medium text-gray-700">
-                                {{ number_format($item->quantity * $item->unit_price) }}đ
+                                {{ number_format($item->subtotal) }}đ
                             </span>
                         </div>
                     </div>
@@ -105,7 +117,7 @@
                 <div class="flex items-center justify-between mb-4">
                     <span class="font-semibold text-gray-700">Tổng cộng:</span>
                     <span id="total-price" class="text-xl font-bold" style="color: #c8622a;">
-                        {{ number_format($order->orderItems->sum(fn($i) => $i->quantity * $i->unit_price)) }}đ
+                        {{ number_format($order->orderItems->sum(fn($i) => $i->subtotal)) }}đ
                     </span>
                 </div>
 
@@ -215,102 +227,318 @@
 
     </div>
 </div>
+
+{{-- ── Modal chọn Option ── --}}
+<div id="option-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 px-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+
+        {{-- Header --}}
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h3 id="modal-item-name" class="text-lg font-bold text-gray-800"></h3>
+                <p id="modal-item-price" class="text-sm text-orange-500 font-medium"></p>
+            </div>
+            <button onclick="closeModal()"
+                    class="w-8 h-8 rounded-full bg-gray-100 text-gray-500
+                           hover:bg-gray-200 transition font-bold">✕</button>
+        </div>
+
+        {{-- Danh sách option groups -- render bằng JS --}}
+        <div id="modal-options" class="space-y-4 max-h-64 overflow-y-auto mb-4"></div>
+
+        {{-- Ghi chú --}}
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+            <input type="text" id="modal-note"
+                   placeholder="VD: ít đá, nhiều đường..."
+                   class="w-full px-4 py-2 rounded-xl border border-gray-200
+                          focus:outline-none focus:border-orange-400 bg-gray-50 text-sm">
+        </div>
+
+        {{-- Nút xác nhận --}}
+        <button onclick="confirmAddItem()"
+                class="w-full py-3 rounded-xl text-white font-semibold
+                       transition hover:-translate-y-0.5"
+                style="background: linear-gradient(135deg, #c8622a, #f5a623);">
+            + Thêm vào order
+        </button>
+
+    </div>
+</div>
 @endsection
 
 @push('scripts')
 <script>
-    const csrfToken = '{{ csrf_token() }}';
+const csrfToken = '{{ csrf_token() }}';
 
-    function formatMoney(amount) {
-        return new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
-    }
+// ── Data món ăn từ blade truyền xuống JS ──
+const menuData = {
+    @foreach($categories as $category)
+        @foreach($category->menuItems as $menuItem)
+        {{ $menuItem->id }}: {
+            name:  "{{ addslashes($menuItem->name) }}",
+            price: {{ $menuItem->price }},
+            optionGroups: [
+                @foreach($menuItem->getAllOptionGroups() as $group)
+                {
+                    id:          {{ $group->id }},
+                    name:        "{{ addslashes($group->name) }}",
+                    is_required: {{ $group->is_required ? 'true' : 'false' }},
+                    is_multiple: {{ $group->is_multiple ? 'true' : 'false' }},
+                    values: [
+                        @foreach($group->optionValues as $val)
+                        {
+                            id:          {{ $val->id }},
+                            name:        "{{ addslashes($val->name) }}",
+                            extra_price: {{ $val->extra_price }},
+                        },
+                        @endforeach
+                    ],
+                },
+                @endforeach
+            ],
+        },
+        @endforeach
+    @endforeach
+};
 
-    function updateTotal(total) {
-        document.getElementById('total-price').textContent = formatMoney(total);
-    }
+// ── Biến lưu trạng thái modal ──
+let currentOrderId  = null;
+let currentMenuItemId = null;
 
-    async function addItem(orderId, menuItemId) {
-        const res = await fetch(`/manage/orders/${orderId}/items`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
-            body: JSON.stringify({ menu_item_id: menuItemId }),
+// ── Format tiền ──
+function formatMoney(amount) {
+    return new Intl.NumberFormat('vi-VN').format(amount) + 'đ';
+}
+
+// ── Cập nhật tổng tiền ──
+function updateTotal(total) {
+    document.getElementById('total-price').textContent = formatMoney(total);
+}
+
+// ── Bấm + món → mở modal ──
+function addItem(orderId, menuItemId) {
+    currentOrderId    = orderId;
+    currentMenuItemId = menuItemId;
+
+    const menuItem = menuData[menuItemId];
+
+    // Hiện tên + giá trong modal
+    document.getElementById('modal-item-name').textContent  = menuItem.name;
+    document.getElementById('modal-item-price').textContent = formatMoney(menuItem.price);
+    document.getElementById('modal-note').value             = '';
+
+    // Render option groups
+    const container = document.getElementById('modal-options');
+    container.innerHTML = '';
+
+    if (menuItem.optionGroups.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-400 text-center py-2">Món này không có option</p>';
+    } else {
+        menuItem.optionGroups.forEach(group => {
+            // Radio = chọn 1, Checkbox = chọn nhiều
+            const inputType = group.is_multiple ? 'checkbox' : 'radio';
+
+            let html = `
+                <div>
+                    <p class="text-sm font-semibold text-gray-700 mb-1">
+                        ${group.name}
+                        ${group.is_required
+                            ? '<span class="text-red-500 text-xs ml-1">*bắt buộc</span>'
+                            : '<span class="text-gray-400 text-xs ml-1">(tuỳ chọn)</span>'
+                        }
+                    </p>
+                    <div class="space-y-1">`;
+
+            group.values.forEach(val => {
+                const priceLabel = val.extra_price > 0
+                    ? `<span class="text-xs text-orange-400 ml-auto">+${formatMoney(val.extra_price)}</span>`
+                    : '';
+
+                html += `
+                    <label class="flex items-center gap-2 cursor-pointer px-3 py-2
+                                  rounded-lg hover:bg-orange-50 transition">
+                        <input type="${inputType}"
+                               name="option_group_${group.id}"
+                               value="${val.id}"
+                               class="accent-orange-500">
+                        <span class="text-sm text-gray-700">${val.name}</span>
+                        ${priceLabel}
+                    </label>`;
+            });
+
+            html += `</div></div>`;
+            container.innerHTML += html;
         });
-        const data = await res.json();
-        if (!res.ok) { alert(data.error); return; }
-
-        const existingItem = document.getElementById(`item-${data.item.id}`);
-        if (existingItem) {
-            document.getElementById(`qty-${data.item.id}`).textContent     = data.item.quantity;
-            document.getElementById(`subtotal-${data.item.id}`).textContent = formatMoney(data.item.subtotal);
-        } else {
-            const emptyMsg = document.getElementById('empty-message');
-            if (emptyMsg) emptyMsg.remove();
-            document.getElementById('order-items').insertAdjacentHTML('beforeend', `
-                <div id="item-${data.item.id}" class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                    <div>
-                        <p class="font-medium text-gray-800">${data.item.name}</p>
-                        <p class="text-xs text-gray-400">${formatMoney(data.item.unit_price)} / món</p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="updateItem(${orderId}, ${data.item.id}, 'decrement')"
-                                class="w-7 h-7 rounded-full bg-gray-200 text-gray-600 hover:bg-red-100 hover:text-red-600 transition font-bold">−</button>
-                        <span id="qty-${data.item.id}" class="w-8 text-center font-semibold text-gray-800">${data.item.quantity}</span>
-                        <button onclick="updateItem(${orderId}, ${data.item.id}, 'increment')"
-                                class="w-7 h-7 rounded-full bg-gray-200 text-gray-600 hover:bg-green-100 hover:text-green-600 transition font-bold">+</button>
-                        <button onclick="removeItem(${orderId}, ${data.item.id})"
-                                class="w-7 h-7 rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition text-xs">✕</button>
-                        <span id="subtotal-${data.item.id}" class="w-24 text-right font-medium text-gray-700">${formatMoney(data.item.subtotal)}</span>
-                    </div>
-                </div>
-            `);
-        }
-        updateTotal(data.total);
     }
 
-    async function updateItem(orderId, itemId, action) {
-        const res = await fetch(`/manage/orders/${orderId}/items/${itemId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
-            body: JSON.stringify({ action }),
-        });
-        const data = await res.json();
-        if (!res.ok) { alert(data.error); return; }
+    // Mở modal
+    const modal = document.getElementById('option-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
 
-        if (data.deleted) {
-            document.getElementById(`item-${itemId}`).remove();
-            if (!document.getElementById('order-items').children.length) {
-                document.getElementById('order-items').innerHTML =
-                    `<div id="empty-message" class="text-center text-gray-400 py-8">Chưa có món nào — thêm món từ menu bên phải</div>`;
+// ── Đóng modal ──
+function closeModal() {
+    const modal = document.getElementById('option-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// ── Bấm "Thêm vào order" trong modal ──
+async function confirmAddItem() {
+    const menuItem = menuData[currentMenuItemId];
+
+    // Kiểm tra các group bắt buộc đã chọn chưa
+    for (const group of menuItem.optionGroups) {
+        if (group.is_required) {
+            const checked = document.querySelectorAll(
+                `input[name="option_group_${group.id}"]:checked`
+            );
+            if (checked.length === 0) {
+                alert(`Vui lòng chọn "${group.name}"`);
+                return;
             }
-        } else {
-            document.getElementById(`qty-${itemId}`).textContent      = data.quantity;
-            document.getElementById(`subtotal-${itemId}`).textContent = formatMoney(data.subtotal);
         }
-        updateTotal(data.total);
     }
 
-    async function removeItem(orderId, itemId) {
-        if (!confirm('Xoá món này?')) return;
-        const res = await fetch(`/manage/orders/${orderId}/items/${itemId}`, {
-            method: 'DELETE',
-            headers: { 'X-CSRF-TOKEN': csrfToken },
-        });
-        const data = await res.json();
-        if (!res.ok) { alert(data.error); return; }
+    // Gom tất cả option_value_id đã chọn
+    const selectedOptions = [...document.querySelectorAll('#modal-options input:checked')]
+        .map(el => parseInt(el.value));
 
+    const note = document.getElementById('modal-note').value;
+
+    const res = await fetch(`/manage/orders/${currentOrderId}/items`, {
+        method:  'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+        },
+        body: JSON.stringify({
+            menu_item_id: currentMenuItemId,
+            options:      selectedOptions,
+            note:         note,
+        }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+
+    closeModal();
+
+    // Thêm item vào danh sách món đã gọi
+    const emptyMsg = document.getElementById('empty-message');
+    if (emptyMsg) emptyMsg.remove();
+
+    const optionText = data.item.options
+        ? `<p class="text-xs text-orange-400 mt-0.5">${data.item.options}</p>`
+        : '';
+
+    const noteText = note
+        ? `<p class="text-xs text-gray-400 italic mt-0.5">📝 ${note}</p>`
+        : '';
+
+    document.getElementById('order-items').insertAdjacentHTML('beforeend', `
+        <div id="item-${data.item.id}"
+             class="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+            <div>
+                <p class="font-medium text-gray-800">${data.item.name}</p>
+                <p class="text-xs text-gray-400">
+                    ${formatMoney(data.item.unit_price + data.item.extra_price)} / món
+                </p>
+                ${optionText}
+                ${noteText}
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="updateItem(${currentOrderId}, ${data.item.id}, 'decrement')"
+                        class="w-7 h-7 rounded-full bg-gray-200 text-gray-600
+                               hover:bg-red-100 hover:text-red-600 transition font-bold">−</button>
+                <span id="qty-${data.item.id}"
+                      class="w-8 text-center font-semibold text-gray-800">
+                    ${data.item.quantity}
+                </span>
+                <button onclick="updateItem(${currentOrderId}, ${data.item.id}, 'increment')"
+                        class="w-7 h-7 rounded-full bg-gray-200 text-gray-600
+                               hover:bg-green-100 hover:text-green-600 transition font-bold">+</button>
+                <button onclick="removeItem(${currentOrderId}, ${data.item.id})"
+                        class="w-7 h-7 rounded-full bg-red-50 text-red-500
+                               hover:bg-red-100 transition text-xs">✕</button>
+                <span id="subtotal-${data.item.id}"
+                      class="w-24 text-right font-medium text-gray-700">
+                    ${formatMoney(data.item.subtotal)}
+                </span>
+            </div>
+        </div>
+    `);
+
+    updateTotal(data.total);
+}
+
+// ── Tăng/giảm số lượng ──
+async function updateItem(orderId, itemId, action) {
+    const res = await fetch(`/manage/orders/${orderId}/items/${itemId}`, {
+        method:  'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken
+        },
+        body: JSON.stringify({ action }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+
+    if (data.deleted) {
         document.getElementById(`item-${itemId}`).remove();
         if (!document.getElementById('order-items').children.length) {
             document.getElementById('order-items').innerHTML =
-                `<div id="empty-message" class="text-center text-gray-400 py-8">Chưa có món nào — thêm món từ menu bên phải</div>`;
+                `<div id="empty-message" class="text-center text-gray-400 py-8">
+                    Chưa có món nào — thêm món từ menu bên phải
+                </div>`;
         }
-        updateTotal(data.total);
+    } else {
+        document.getElementById(`qty-${itemId}`).textContent      = data.quantity;
+        document.getElementById(`subtotal-${itemId}`).textContent = formatMoney(data.subtotal);
     }
 
-    function filterMenu() {
-        const kw = document.getElementById('menu-search').value.toLowerCase();
-        document.querySelectorAll('.menu-item').forEach(el => {
-            el.style.display = el.dataset.name.includes(kw) ? 'flex' : 'none';
-        });
+    updateTotal(data.total);
+}
+
+// ── Xoá món ──
+async function removeItem(orderId, itemId) {
+    if (!confirm('Xoá món này?')) return;
+
+    const res = await fetch(`/manage/orders/${orderId}/items/${itemId}`, {
+        method:  'DELETE',
+        headers: { 'X-CSRF-TOKEN': csrfToken },
+    });
+
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+
+    document.getElementById(`item-${itemId}`).remove();
+    if (!document.getElementById('order-items').children.length) {
+        document.getElementById('order-items').innerHTML =
+            `<div id="empty-message" class="text-center text-gray-400 py-8">
+                Chưa có món nào — thêm món từ menu bên phải
+            </div>`;
     }
+
+    updateTotal(data.total);
+}
+
+// ── Tìm kiếm món ──
+function filterMenu() {
+    const kw = document.getElementById('menu-search').value.toLowerCase();
+    document.querySelectorAll('.menu-item').forEach(el => {
+        el.style.display = el.dataset.name.includes(kw) ? 'flex' : 'none';
+    });
+}
+
+// ── Đóng modal khi click ra ngoài ──
+document.getElementById('option-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
 </script>
 @endpush
