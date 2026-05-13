@@ -1,0 +1,208 @@
+<?php
+
+namespace App\Http\Controllers\Manage;
+
+use App\Http\Controllers\Controller;
+use App\Models\Booking;
+use App\Models\Order;
+use App\Models\Table;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
+
+class BookingController extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     * Quản lý theo ngày, giới hạn tuần trước – tuần này – tuần sau
+     */
+    public function index(Request $request)
+    {
+        $today     = Carbon::today();
+        $minDate   = $today->copy()->startOfWeek()->subWeek(); // Đầu tuần trước
+        $maxDate   = $today->copy()->endOfWeek()->addWeek();   // Cuối tuần sau
+
+        // Ngày đang xem — mặc định hôm nay
+        $selectedDate = $request->filled('date')
+            ? Carbon::parse($request->date)->startOfDay()
+            : $today->copy();
+
+        // Giới hạn không ra ngoài phạm vi cho phép
+        if ($selectedDate->lt($minDate)) $selectedDate = $minDate->copy();
+        if ($selectedDate->gt($maxDate)) $selectedDate = $maxDate->copy();
+
+        $prevDate = $selectedDate->copy()->subDay();
+        $nextDate = $selectedDate->copy()->addDay();
+
+        $canGoPrev = $prevDate->gte($minDate);
+        $canGoNext = $nextDate->lte($maxDate);
+
+        // Xác định quyền thao tác theo ngày
+        $isToday  = $selectedDate->isToday();
+        $isFuture = $selectedDate->isFuture();
+
+        // Mặc định tab = pending (nếu không có query status)
+        $activeStatus = $request->input('status', 'pending');
+
+        // Đếm số lượng theo từng status trong ngày (để hiện badge số)
+        $statusCounts = Booking::whereDate('start_time', $selectedDate)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->toArray();
+
+        $bookings = Booking::query()
+            ->with(['user', 'table.area', 'staff'])
+            ->whereDate('start_time', $selectedDate)
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $q->where(function ($sub) use ($request) {
+                    $sub->where('guest_name', 'like', '%' . $request->search . '%')
+                        ->orWhereHas('user', fn($u) => $u->where('name', 'like', '%' . $request->search . '%'));
+                });
+            })
+            ->where('status', $activeStatus)
+            ->orderBy('start_time', 'asc')
+            ->paginate(20)
+            ->withQueryString();
+
+        return view('manage.bookings.index', compact(
+            'bookings',
+            'selectedDate',
+            'prevDate',
+            'nextDate',
+            'canGoPrev',
+            'canGoNext',
+            'isToday',
+            'isFuture',
+            'today',
+            'minDate',
+            'maxDate',
+            'activeStatus',
+            'statusCounts',
+        ));
+    }
+
+    public function confirm(Booking $booking)
+    {
+        if ($booking->status !== 'pending') {
+            return back()->with('error', 'Booking này không thể xác nhận');
+        }
+
+        $booking->update([
+            'status'       => 'confirmed',
+            'confirmed_at' => now(),
+            'staff_id'     => Auth::user()->id,
+        ]);
+
+        $booking->addLog('confirmed', Auth::user()->id);
+        Order::create([
+            'booking_id' => $booking->id,
+            'table_id'   => $booking->table_id,
+            'staff_id'   => Auth::user()->id,
+            'status'     => 'open',
+        ]);
+        return redirect()
+            ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
+            ->with('success', 'Xác nhận khách đến thành công — Order đã được tạo');
+    }
+
+    public function complete(Booking $booking)
+    {
+        if ($booking->status !== 'confirmed') {
+            return back()->with('error', 'Booking chưa được xác nhận');
+        }
+        $booking->update(['status' => 'completed']);
+        $booking->addLog('completed', Auth::user()->id);
+        return redirect()
+            ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
+            ->with('success', 'Khách đã dùng bữa xong và trả bàn');
+    }
+
+    public function cancel(Booking $booking)
+    {
+        if (!in_array($booking->status, ['pending', 'confirmed'])) {
+            return back()->with('error', 'Không thể hủy đơn này');
+        }
+        $booking->update(['status' => 'cancelled']);
+        $booking->addLog('cancelled', Auth::user()->id);
+        return redirect()
+            ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
+            ->with('success', 'Hủy đơn thành công');
+    }
+
+    public function create()
+    {
+        $now     = Carbon::now();
+        $endTime = Carbon::now()->addHours(3);
+
+        $tables = Table::where('status', 'active')
+            ->whereDoesntHave('bookings', function ($query) use ($now, $endTime) {
+                $query->whereIn('status', ['pending', 'confirmed'])
+                    ->where('start_time', '<', $endTime)
+                    ->where('end_time', '>', $now);
+            })
+            ->with('area')
+            ->get();
+
+        return view('manage.bookings.create', [
+            'tables'     => $tables,
+            'start_time' => $now->format('Y-m-d H:i:s'),
+            'end_time'   => $endTime->format('Y-m-d H:i:s'),
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'table_id'    => 'required|exists:tables,id',
+            'guest_name'  => 'nullable|string|max:100',
+            'guest_phone' => 'nullable|string|max:20',
+            'guest_count' => 'required|integer|min:1',
+            'start_time'  => 'required|date',
+            'end_time'    => 'required|date',
+            'note'        => 'nullable|string',
+        ]);
+
+        $isConflict = Booking::where('table_id', $data['table_id'])
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->where('start_time', '<', $data['end_time'])
+            ->where('end_time', '>', $data['start_time'])
+            ->exists();
+
+        if ($isConflict) {
+            return back()->with('error', 'Bàn này vừa được đặt, vui lòng chọn bàn khác');
+        }
+
+        $booking = Booking::create([
+            'user_id'      => null,
+            'table_id'     => $data['table_id'],
+            'guest_name'   => $data['guest_name'] ?? 'Khách vãng lai',
+            'guest_phone'  => $data['guest_phone'] ?? '',
+            'guest_count'  => $data['guest_count'],
+            'start_time'   => $data['start_time'],
+            'end_time'     => $data['end_time'],
+            'status'       => 'confirmed',
+            'confirmed_at' => now(),
+            'staff_id'     => Auth::user()->id,
+            'note'         => $data['note'] ?? null,
+        ]);
+
+        $booking->addLog('confirmed', Auth::user()->id, 'Walk-in');
+        Order::create([
+            'booking_id' => $booking->id,
+            'table_id'   => $booking->table_id,
+            'staff_id'   => Auth::user()->id,
+            'status'     => 'open',
+        ]);
+
+        return redirect()
+            ->route('manage.bookings.index')
+            ->with('success', 'Tạo đơn walk-in thành công');
+    }
+
+    public function show(Booking $booking)
+    {
+        $booking->load(['user', 'table.area', 'staff', 'logs.staff']);
+        return view('manage.bookings.show', compact('booking'));
+    }
+}

@@ -1,0 +1,26 @@
+<?php
+
+namespace Database\Factories;
+
+use App\Models\Shift;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+/**
+ * @extends Factory<Shift>
+ */
+class ShiftFactory extends Factory
+{
+    /**
+     * Define the model's default state.
+     *
+     * @return array<string, mixed>
+     */
+    public function definition(): array
+    {
+        return [
+            'name'       => $this->faker->randomElement(['Ca sáng', 'Ca chiều', 'Ca tối']),
+            'start_time' => $this->faker->randomElement(['06:00', '12:00', '17:00']),
+            'end_time'   => $this->faker->randomElement(['12:00', '17:00', '22:00']),
+        ];
+    }
+}
