@@ -33,7 +33,7 @@
                         <td class="px-4 py-3 text-gray-500">{{ $area->description ?? '—' }}</td>
                         <td class="px-4 py-3">
                             <span class="px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600">
-                                {{ $area->tables()->count() }} bàn
+                                {{ $area->tables_count }} bàn
                             </span>
                         </td>
                         <td class="px-4 py-3">
