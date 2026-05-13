@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Order;
 use App\Models\Table;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -88,21 +89,25 @@ class BookingController extends Controller
         if ($booking->status !== 'pending') {
             return back()->with('error', 'Booking này không thể xác nhận');
         }
-        DB::transaction(function () use ($booking) {
-            $booking->update([
-                'status'       => 'confirmed',
-                'confirmed_at' => now(),
-                'staff_id'     => Auth::user()->id,
-            ]);
+        try{
+            DB::transaction(function () use ($booking) {
+                $booking->update([
+                    'status'       => 'confirmed',
+                    'confirmed_at' => now(),
+                    'staff_id'     => Auth::user()->id,
+                ]);
 
-            $booking->addLog('confirmed', Auth::user()->id);
-            Order::create([
-                'booking_id' => $booking->id,
-                'table_id'   => $booking->table_id,
-                'staff_id'   => Auth::user()->id,
-                'status'     => 'open',
-            ]);
-        });
+                $booking->addLog('confirmed', Auth::user()->id);
+                Order::create([
+                    'booking_id' => $booking->id,
+                    'table_id'   => $booking->table_id,
+                    'staff_id'   => Auth::user()->id,
+                    'status'     => 'open',
+                ]);
+            });
+        }catch(\Exception $e){
+            return back()->with('error', 'Đã có lỗi xảy ra, vui lòng thử lại');
+        }
         return redirect()
             ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
             ->with('success', 'Xác nhận khách đến thành công — Order đã được tạo');
@@ -113,10 +118,14 @@ class BookingController extends Controller
         if ($booking->status !== 'confirmed') {
             return back()->with('error', 'Booking chưa được xác nhận');
         }
-        DB::transaction(function () use ($booking) {
-            $booking->update(['status' => 'completed']);
-            $booking->addLog('completed', Auth::user()->id);
-        });
+        try{
+            DB::transaction(function () use ($booking) {
+                $booking->update(['status' => 'completed']);
+                $booking->addLog('completed', Auth::user()->id);
+            });
+        }catch(\Exception $e){
+            return back()->with('error', 'Đã xảy ra lỗi, vui lòng thử lại');
+        }
         return redirect()
             ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
             ->with('success', 'Khách đã dùng bữa xong và trả bàn');
@@ -127,10 +136,14 @@ class BookingController extends Controller
         if (!in_array($booking->status, ['pending', 'confirmed'])) {
             return back()->with('error', 'Không thể hủy đơn này');
         }
-        DB::transaction(function () use ($booking) {
-            $booking->update(['status' => 'cancelled']);
-            $booking->addLog('cancelled', Auth::user()->id);
-        });
+        try{
+            DB::transaction(function () use ($booking) {
+                $booking->update(['status' => 'cancelled']);
+                $booking->addLog('cancelled', Auth::user()->id);
+            });
+        }catch(\Exception $e){
+            return back()->with('error', 'Đã xảy ra lỗi, vui lòng thử lại');
+        }
         return redirect()
             ->route('manage.bookings.index', ['date' => $booking->start_time->format('Y-m-d')])
             ->with('success', 'Hủy đơn thành công');
@@ -178,29 +191,33 @@ class BookingController extends Controller
         if ($isConflict) {
             return back()->with('error', 'Bàn này vừa được đặt, vui lòng chọn bàn khác');
         }
-        DB::transaction(function () use ($data) {
-            $booking = Booking::create([
-                'user_id'      => null,
-                'table_id'     => $data['table_id'],
-                'guest_name'   => $data['guest_name'] ?? 'Khách vãng lai',
-                'guest_phone'  => $data['guest_phone'] ?? '',
-                'guest_count'  => $data['guest_count'],
-                'start_time'   => $data['start_time'],
-                'end_time'     => $data['end_time'],
-                'status'       => 'confirmed',
-                'confirmed_at' => now(),
-                'staff_id'     => Auth::user()->id,
-                'note'         => $data['note'] ?? null,
-            ]);
+        try{
+            DB::transaction(function () use ($data) {
+                $booking = Booking::create([
+                    'user_id'      => null,
+                    'table_id'     => $data['table_id'],
+                    'guest_name'   => $data['guest_name'] ?? 'Khách vãng lai',
+                    'guest_phone'  => $data['guest_phone'] ?? '',
+                    'guest_count'  => $data['guest_count'],
+                    'start_time'   => $data['start_time'],
+                    'end_time'     => $data['end_time'],
+                    'status'       => 'confirmed',
+                    'confirmed_at' => now(),
+                    'staff_id'     => Auth::user()->id,
+                    'note'         => $data['note'] ?? null,
+                ]);
 
-            $booking->addLog('confirmed', Auth::user()->id, 'Walk-in');
-            Order::create([
-                'booking_id' => $booking->id,
-                'table_id'   => $booking->table_id,
-                'staff_id'   => Auth::user()->id,
-                'status'     => 'open',
-            ]);
-        });
+                $booking->addLog('confirmed', Auth::user()->id, 'Walk-in');
+                Order::create([
+                    'booking_id' => $booking->id,
+                    'table_id'   => $booking->table_id,
+                    'staff_id'   => Auth::user()->id,
+                    'status'     => 'open',
+                ]);
+            });
+        }catch(\Exception $e){
+            return back()->with('error', 'Đã xảy ra lỗi, vui lòng thử lại');
+        }
 
         return redirect()
             ->route('manage.bookings.index')
