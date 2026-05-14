@@ -162,18 +162,6 @@
                             </form>
                         @endif
 
-                        {{-- Xoá --}}
-                        <form action="{{ route('admin.reviews.destroy', $review) }}" method="POST"
-                              onsubmit="return confirm('Xoá review này?')">
-                            @csrf
-                            @method('DELETE')
-                            <button type="submit"
-                                    class="w-full px-4 py-2 rounded-xl text-sm font-medium
-                                           bg-gray-50 text-gray-500 hover:bg-gray-100 transition">
-                                🗑 Xoá
-                            </button>
-                        </form>
-
                     </div>
                 </div>
             </div>
