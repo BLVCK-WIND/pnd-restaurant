@@ -40,7 +40,7 @@
         <div class="flex items-center justify-between h-16">
 
             {{-- Logo --}}
-            <a href="{{ auth()->user()->role === 'admin' ? route('admin.dashboard') : route('manage.bookings.index') }}"
+            <a href="{{ auth()->user()->role === 'admin' ? route('admin.dashboard') : route('staff.dashboard') }}"
                class="flex items-center gap-2">
                 <span class="text-2xl">🍜</span>
                 <div>
@@ -136,7 +136,7 @@
                     {{-- Báo cáo --}}
                     <div class="dropdown-wrapper relative">
                         <button class="dropdown-toggle nav-link px-3 py-2 text-orange-100 text-sm font-medium rounded-lg flex items-center gap-1
-                        {{ request()->routeIs('admin.reviews.*') ? 'active' : '' }}">
+                        {{ request()->routeIs('admin.reviews.*') || request()->routeIs('admin.revenue.*')? 'active' : '' }}">
                             📈 Báo cáo <span class="text-xs">▾</span>
                         </button>
                         <div class="dropdown hidden absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl overflow-hidden">
@@ -144,7 +144,7 @@
                                class="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 transition">
                                 ⭐ Review
                             </a>
-                            <a href="#"
+                            <a href="{{route('admin.revenue.index')}}"
                                class="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600 transition">
                                 📊 Doanh thu
                             </a>
@@ -153,6 +153,11 @@
 
                 @else
                     {{-- ===== STAFF NAV ===== --}}
+                    <a href="{{ route('staff.dashboard') }}"
+                       class="nav-link px-3 py-2 text-orange-100 text-sm font-medium rounded-lg
+                              {{ request()->routeIs('staff.dashboard') ? 'active' : '' }}">
+                        📊 Dashboard
+                    </a>
 
                     <a href="{{ route('manage.bookings.index') }}"
                        class="nav-link px-3 py-2 text-orange-100 text-sm font-medium rounded-lg
@@ -168,7 +173,7 @@
 
                     <a href="{{route('staff.schedules.index')}}"
                        class="nav-link px-3 py-2 text-orange-100 text-sm font-medium rounded-lg
-                                {{ request()->routeIs('manage.schedules.*') ? 'active' : '' }}">
+                                {{ request()->routeIs('staff.schedules.*') ? 'active' : '' }}">
                         🕐 Ca làm việc
                     </a>
 

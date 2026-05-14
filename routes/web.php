@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\Admin\AreaController;
 use App\Http\Controllers\Admin\CategoryController;
+use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GuestController;
 use App\Http\Controllers\Admin\MenuItemController;
 use App\Http\Controllers\Admin\OptionGroupController;
+use App\Http\Controllers\Admin\RevenueController;
 use App\Http\Controllers\Admin\ReviewController as AdminReviewController;
 use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\StaffController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\Manage\BookingController as ManageBookingController;
 use App\Http\Controllers\Manage\OrderController;
 use App\Http\Controllers\Shared\BookingController as SharedBookingController;
 use App\Http\Controllers\Staff\ScheduleController as StaffScheduleController;
+use App\Http\Controllers\Staff\StaffDashboardController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -33,7 +36,7 @@ Route::post('/logout', [LoginController::class, 'logout'])->name('logout')->midd
 
 // Admin
 Route::prefix('admin')->name('admin.')->middleware(['auth', 'role:admin'])->group(function () {
-    Route::get('/dashboard', fn() => view('admin.dashboard'))->name('dashboard');
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/categories/reorder', [CategoryController::class, 'reorder'])
     ->name('categories.reorder');
     Route::resource('/categories', CategoryController::class);
@@ -65,11 +68,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'role:admin'])->grou
 
     //OptionGroup
     Route::resource('/optiongroups', OptionGroupController::class);
+
+    //Revenue ( Doanh Thu )
+    Route::get('/revenue', [RevenueController::class, 'index'])->name('revenue.index');
 });
 
 // Staff
 Route::prefix('staff')->name('staff.')->middleware(['auth', 'role:staff'])->group(function () {
-    Route::get('/dashboard', fn() => view('staff.dashboard'))->name('dashboard');
+    Route::get('/dashboard', [StaffDashboardController::class, 'index'])
+     ->name('dashboard');
     Route::get('/schedules', [StaffScheduleController::class, 'index'])->name('schedules.index');
 });
 
