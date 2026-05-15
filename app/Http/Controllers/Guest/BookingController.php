@@ -13,7 +13,7 @@ class BookingController extends Controller
 {
     public function index()
     {
-        $bookings = Booking::where('user_id', Auth::user()->id)
+        $bookings = Booking::ofUser(Auth::user()->id)
             ->with(['table.area','review'])
             ->latest()
             ->paginate(10);
@@ -32,12 +32,10 @@ class BookingController extends Controller
                 return back()->withErrors(['start_time'=>'Thời gian đặt bàn không được ở quá khứ']);
             }
             $endTime = $startTime->copy()->addHours(3);
-            $tables = Table::where('status', 'active')
+            $tables = Table::active()
             ->where('capacity', '>=', $request->guest_count)
             ->whereDoesntHave('bookings', function($query) use ($endTime, $startTime){
-                $query->whereIn('status', ['pending', 'confirmed'])
-                ->where('start_time', '<', $endTime)
-                ->where('end_time', '>', $startTime);
+                $query->active()->conflictsWith($startTime, $endTime);
             })
             ->with('area')
             ->get();
@@ -78,10 +76,8 @@ class BookingController extends Controller
             return back()->withErrors(['count'=>'Sức chứa của bàn không đủ']);
         }
 
-        $isConflict = Booking::where('table_id', $data['table_id'])
-        ->whereIn('status', ['pending','confirmed'])
-        ->where('start_time', '<', $data['end_time'])
-        ->where('end_time', '>', $data['start_time'])
+        $isConflict = Booking::forTable($data['table_id'])
+        ->active()->conflictsWith($data['start_time'], $data['end_time'])
         ->exists();
         if($isConflict){
             return back()->withErrors(['table_id'=>'Bàn này hiện đang bận hoặc không khớp với thời gian mà bạn chọn']);

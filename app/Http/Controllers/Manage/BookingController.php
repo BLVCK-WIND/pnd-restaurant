@@ -47,7 +47,7 @@ class BookingController extends Controller
         $activeStatus = $request->input('status', 'pending');
 
         // Đếm số lượng theo từng status trong ngày (để hiện badge số)
-        $statusCounts = Booking::whereDate('start_time', $selectedDate)
+        $statusCounts = Booking::ofDate($selectedDate)
             ->selectRaw('status, count(*) as total')
             ->groupBy('status')
             ->pluck('total', 'status')
@@ -55,14 +55,14 @@ class BookingController extends Controller
 
         $bookings = Booking::query()
             ->with(['user', 'table.area', 'staff'])
-            ->whereDate('start_time', $selectedDate)
+            ->ofDate($selectedDate)
             ->when($request->filled('search'), function ($q) use ($request) {
                 $q->where(function ($sub) use ($request) {
                     $sub->where('guest_name', 'like', '%' . $request->search . '%')
                         ->orWhereHas('user', fn($u) => $u->where('name', 'like', '%' . $request->search . '%'));
                 });
             })
-            ->where('status', $activeStatus)
+            ->ofStatus($activeStatus)
             ->orderBy('start_time', 'asc')
             ->paginate(20)
             ->withQueryString();
@@ -154,11 +154,9 @@ class BookingController extends Controller
         $now     = Carbon::now();
         $endTime = Carbon::now()->addHours(3);
 
-        $tables = Table::where('status', 'active')
+        $tables = Table::active()
             ->whereDoesntHave('bookings', function ($query) use ($now, $endTime) {
-                $query->whereIn('status', ['pending', 'confirmed'])
-                    ->where('start_time', '<', $endTime)
-                    ->where('end_time', '>', $now);
+                $query->active()->conflictsWith($now, $endTime);
             })
             ->with('area')
             ->get();
@@ -182,10 +180,8 @@ class BookingController extends Controller
             'note'        => 'nullable|string',
         ]);
 
-        $isConflict = Booking::where('table_id', $data['table_id'])
-            ->whereIn('status', ['pending', 'confirmed'])
-            ->where('start_time', '<', $data['end_time'])
-            ->where('end_time', '>', $data['start_time'])
+        $isConflict = Booking::forTable($data['table_id'])
+            ->active()->conflictsWith($data['start_time'], $data['end_time'])
             ->exists();
 
         if ($isConflict) {

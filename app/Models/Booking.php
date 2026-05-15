@@ -55,4 +55,31 @@ class Booking extends Model
             'note'     => $note,
         ]);
     }
+
+    public function scopeActive($query){
+        return $query->whereIn('status', ['pending', 'confirmed']);
+    }
+
+    public function scopeForTable($query, int $tableId){
+        return $query->where('table_id', $tableId);
+    }
+
+    public function scopeConflictsWith($query, $startTime, $endTime){
+        return $query
+            ->where('start_time', '<', $endTime)
+            ->where('end_time', '>', $startTime);
+    }
+
+    public function scopeOfDate($query, $date){
+        return $query->whereDate('start_time', $date);
+    }
+
+    public function scopeOfStatus($query, $status){
+        return $query->where('status', $status);
+    }
+
+    public function scopeOfUser($query, int $userId)
+    {
+        return $query->where('user_id', $userId);
+    }
 }
