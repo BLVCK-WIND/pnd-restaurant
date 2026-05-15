@@ -26,4 +26,8 @@ class Table extends Model
     {
         return $this->hasMany(Order::class);
     }
+
+    public function scopeActive($query){
+        return $query->where('status', 'active');
+    }
 }

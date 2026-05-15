@@ -43,4 +43,12 @@ class Order extends Model
     {
         return $this->orderItems->sum(fn($item) => $item->subtotal);    
     }
+
+    public function scopeOpen($query){
+        return $query->where('status', 'open');
+    }
+
+    public function scopeOfDate($query, $date){
+        return $query->whereDate('created_at', $date);
+    }
 }
