@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Manage;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Manage\StoreBookingRequest;
 use App\Models\Booking;
 use App\Models\Order;
 use App\Models\Table;
@@ -168,18 +169,9 @@ class BookingController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(StoreBookingRequest $request)
     {
-        $data = $request->validate([
-            'table_id'    => 'required|exists:tables,id',
-            'guest_name'  => 'nullable|string|max:100',
-            'guest_phone' => 'nullable|string|max:20',
-            'guest_count' => 'required|integer|min:1',
-            'start_time'  => 'required|date',
-            'end_time'    => 'required|date',
-            'note'        => 'nullable|string',
-        ]);
-
+        $data = $request->validated();
         $isConflict = Booking::forTable($data['table_id'])
             ->active()->conflictsWith($data['start_time'], $data['end_time'])
             ->exists();

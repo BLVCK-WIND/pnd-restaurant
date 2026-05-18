@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Guest;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Guest\StoreBookingRequest;
 use App\Models\Booking;
 use App\Models\Table;
 use Illuminate\Http\Request;
@@ -47,27 +48,9 @@ class BookingController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(StoreBookingRequest $request)
     {
-        $data = $request->validate(
-            [
-                'table_id'    => 'required|exists:tables,id',
-                'guest_name'  => 'required|string|max:100',
-                'guest_phone' => 'required|string|max:20',
-                'guest_count' => 'required|integer|min:1',
-                'start_time'  => 'required|date|after:now',
-                'end_time'    => 'required|date|after:start_time',
-                'note'        => 'nullable|string',
-            ]
-        );
-        $start = Carbon::parse($data['start_time']);
-        $end   = Carbon::parse($data['end_time']);
-
-        if ($end->diffInHours($start) > 3) {
-            return back()->withErrors([
-                'end_time' => 'Thời gian đặt bàn tối đa 3 tiếng'
-            ]);
-        }
+        $data = $request->validated();
         $table = Table::findOrFail($data['table_id']);
         if($table->status!=='active'){
             return back()->withErrors(['status'=>'Bàn này đang ngưng hoạt động']);
