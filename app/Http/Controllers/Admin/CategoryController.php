@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\SaveCategoryRequest;
 use App\Models\Category;
 use App\Models\OptionGroup;
 use Illuminate\Http\Request;
@@ -28,17 +29,9 @@ class CategoryController extends Controller
         return view('admin.categories.create', compact('optionGroups'));
     }
 
-    public function store(Request $request)
+    public function store(SaveCategoryRequest $request)
     {
-        $data = $request->validate([
-            'name'        => 'required|unique:categories,name',
-            'description' => 'nullable',
-            'sort_order'  => 'nullable|integer|min:1',
-            'is_active'   => 'nullable|boolean',
-            'image'       => 'nullable|image|max:2048',
-            'option_groups' => 'nullable|array', 
-            'option_groups.*' => 'exists:option_groups,id',
-        ]);
+        $data = $request->validated();
 
         if (!empty($data['sort_order'])) {
             // Đẩy tất cả item có sort_order >= vị trí mới xuống 1
@@ -67,17 +60,9 @@ class CategoryController extends Controller
         return view('admin.categories.edit', compact('category', 'optionGroups'));
     }
 
-    public function update(Request $request, Category $category)
+    public function update(SaveCategoryRequest $request, Category $category)
     {
-        $data = $request->validate([
-            'name'        => 'required|unique:categories,name,' . $category->id,
-            'description' => 'nullable',
-            'sort_order'  => 'nullable|integer|min:1',
-            'is_active'   => 'nullable|boolean',
-            'image'       => 'nullable|image|max:2048',
-            'option_groups'   => 'nullable|array',
-            'option_groups.*' => 'exists:option_groups,id',
-        ]);
+        $data = $request->validated();
 
         $newOrder = $data['sort_order'] ?? $category->sort_order;
         $oldOrder = $category->sort_order;
