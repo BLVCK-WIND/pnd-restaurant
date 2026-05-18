@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\SaveMenuItemRequest;
 use App\Models\Category;
 use App\Models\MenuItem;
 use App\Models\OptionGroup;
@@ -44,17 +45,8 @@ class MenuItemController extends Controller
         $optionGroups = OptionGroup::with('optionValues')->get();
         return view('admin.menuitems.create', compact('categories', 'optionGroups'));
     }
-    public function store(Request $request){
-        $data = $request->validate([
-            'category_id' => 'required|exists:categories,id',
-            'name' => 'required|unique:menu_items, name',
-            'description' => 'nullable',
-            'price' => 'required|integer|min:20000',
-            'status' => 'required|in:active,out_of_stock,inactive',
-            'image' => 'nullable|image|max:2048',
-            'option_groups'   => 'nullable|array',
-            'option_groups.*' => 'exists:option_groups,id',
-        ]);
+    public function store(SaveMenuItemRequest $request){
+        $data = $request->validated();
         $data['slug'] = Str::slug($data['name']);
         if($request->hasFile('image')){
             $data['image'] = $request->file('image')->store('MenuItems', 'public');
@@ -75,19 +67,8 @@ class MenuItemController extends Controller
         return view('admin.menuitems.edit', compact('menuitem','categories','optionGroups'));
     }
 
-    public function update(Request $request, MenuItem $menuitem){
-        $data = $request->validate(
-            [
-                'category_id' => 'required|exists:categories,id',
-                'name' => 'required|unique:menu_items,name,'. $menuitem->id,
-                'description' => 'nullable',
-                'price' => 'required|integer|min:20000',
-                'status' => 'required|in:active,out_of_stock,inactive',
-                'image' => 'nullable|image|max:2048',
-                'option_groups'   => 'nullable|array',
-                'option_groups.*' => 'exists:option_groups,id',
-            ]
-        );
+    public function update(SaveMenuItemRequest $request, MenuItem $menuitem){
+        $data = $request->validated();
         $data['slug'] = Str::slug($data['name']);
         if ($request->hasFile('image')) {
             if ($menuitem->image) {
