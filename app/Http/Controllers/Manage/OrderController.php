@@ -126,7 +126,6 @@ class OrderController extends Controller
         // Cập nhật booking liên quan → completed (bàn trống trở lại)
         if ($order->booking) {
             $order->booking->update(['status' => 'completed']);
-            $order->booking->addLog('completed', Auth::user()->id, 'Huỷ order — bàn trả về');
         }
 
         return redirect()
@@ -271,7 +270,6 @@ class OrderController extends Controller
 
         if ($order->booking) {
             $order->booking->update(['status' => 'completed']);
-            $order->booking->addLog('completed', Auth::user()->id, 'Thanh toán hoàn tất');
         }
 
         return redirect()

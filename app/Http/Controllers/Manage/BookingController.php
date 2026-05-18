@@ -98,7 +98,6 @@ class BookingController extends Controller
                     'staff_id'     => Auth::user()->id,
                 ]);
 
-                $booking->addLog('confirmed', Auth::user()->id);
                 Order::create([
                     'booking_id' => $booking->id,
                     'table_id'   => $booking->table_id,
@@ -122,7 +121,6 @@ class BookingController extends Controller
         try{
             DB::transaction(function () use ($booking) {
                 $booking->update(['status' => 'completed']);
-                $booking->addLog('completed', Auth::user()->id);
             });
         }catch(\Exception $e){
             return back()->with('error', 'Đã xảy ra lỗi, vui lòng thử lại');
@@ -140,7 +138,6 @@ class BookingController extends Controller
         try{
             DB::transaction(function () use ($booking) {
                 $booking->update(['status' => 'cancelled']);
-                $booking->addLog('cancelled', Auth::user()->id);
             });
         }catch(\Exception $e){
             return back()->with('error', 'Đã xảy ra lỗi, vui lòng thử lại');
@@ -195,7 +192,6 @@ class BookingController extends Controller
                     'note'         => $data['note'] ?? null,
                 ]);
 
-                $booking->addLog('confirmed', Auth::user()->id, 'Walk-in');
                 Order::create([
                     'booking_id' => $booking->id,
                     'table_id'   => $booking->table_id,
