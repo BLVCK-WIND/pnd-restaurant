@@ -96,10 +96,7 @@ class StaffController extends Controller
 
     public function destroy(User $staff)
     {
-        abort_if(!in_array($staff->role, ['admin', 'staff']), 404);
-
-        // Không cho xóa chính mình
-        abort_if($staff->id === Auth::user()->id, 403, 'Không thể xoá tài khoản đang đăng nhập');
+        $this->authorize('deleteStaff', $staff);
 
         $staff->delete();
 
@@ -107,11 +104,7 @@ class StaffController extends Controller
     }
     public function toggle(User $staff)
     {
-        abort_if(!in_array($staff->role, ['admin', 'staff']), 404);
-
-        // Không cho khoá chính mình
-        abort_if($staff->id === Auth::user()->id, 403, 'Không thể khoá tài khoản đang đăng nhập');
-
+        $this->authorize('toggleStaff', $staff);
         $staff->update(['is_active' => !$staff->is_active]);
 
         $msg = $staff->is_active ? 'Đã kích hoạt tài khoản' : 'Đã vô hiệu hoá tài khoản';

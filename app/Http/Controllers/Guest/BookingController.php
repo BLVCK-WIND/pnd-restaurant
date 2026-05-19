@@ -74,14 +74,7 @@ class BookingController extends Controller
     public function destroy(Booking $booking)
     {
         // Bước 1 — Kiểm tra booking này có phải của mình không
-        if ($booking->user_id !== Auth::user()->id) {
-            abort(403, 'Bạn không có quyền huỷ booking này');
-        }
-
-        // Bước 2 — Chỉ huỷ được khi status = pending
-        if ($booking->status !== 'pending') {
-            return back()->with('error', 'Chỉ có thể huỷ booking đang chờ xác nhận');
-        }
+        $this->authorize('delete', $booking);
 
         $booking->update(['status' => 'cancelled']);
 

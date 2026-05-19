@@ -34,7 +34,10 @@ class DashboardService
 
     private function getRevenueToday(Carbon $today): int
     {
-        return Payment::whereDate('paid_at', $today)->sum('amount');
+        $key = 'dashboard:revenue_today:' . $today->format('Y-m-d');
+        return cache()->remember($key, 300, function() use ($today){
+                return Payment::whereDate('paid_at', $today)->sum('amount');
+        });
     }
 
     private function getOrdersToday(Carbon $today): int
@@ -53,37 +56,46 @@ class DashboardService
 
     private function getReviewsPending(): int
     {
-        return Review::where('status', 'pending')->count();
+        return cache()->remember('dashboard:reviews_pending', 300, function(){
+            return Review::where('status','pending')->count();
+        });
     }
 
     private function getLast7DaysRevenue(Carbon $today): \Illuminate\Support\Collection
     {
-        return collect(range(6, 0))->map(function ($i) use ($today) {
-            $date = $today->copy()->subDays($i);
-            return [
-                'date'  => $date->format('d/m'),
-                'total' => Payment::whereDate('paid_at', $date)->sum('amount'),
-            ];
+        $key = 'dashboard:last_7_days:' . $today->format('Y-m-d');
+
+        return cache()->remember($key, 300, function () use ($today) {
+            return collect(range(6, 0))->map(function ($i) use ($today) {
+                $date = $today->copy()->subDays($i);
+                return [
+                    'date'  => $date->format('d/m'),
+                    'total' => Payment::whereDate('paid_at', $date)->sum('amount'),
+                ];
+            });
         });
     }
 
     private function getTopMenuItems(Carbon $today): \Illuminate\Support\Collection
     {
-        return OrderItem::select('menu_item_id')
-            ->selectRaw('SUM(quantity) as sold_today')
-            ->whereHas('order', fn($q) =>
-                $q->whereDate('created_at', $today)
-                  ->where('status', 'paid')
-            )
-            ->groupBy('menu_item_id')
-            ->orderByDesc('sold_today')
-            ->limit(5)
-            ->with('menuItem')
-            ->get()
-            ->map(fn($item) => (object)[
-                'name'       => $item->menuItem->name,
-                'sold_today' => $item->sold_today,
+        $key = 'dashboard:top_menu_items:' . $today->format('Y-m-d');
+        return cache()->remember($key,300, function() use ($today){
+            return OrderItem::select('menu_item_id')
+                ->selectRaw('SUM(quantity) as sold_today')
+                ->whereHas('order', fn($q) =>
+                    $q->whereDate('created_at', $today)
+                    ->where('status', 'paid')
+                )
+                ->groupBy('menu_item_id')
+                ->orderByDesc('sold_today')
+                ->limit(5)
+                ->with('menuItem')
+                ->get()
+                ->map(fn($item) => (object)[
+                    'name'       => $item->menuItem->name,
+                    'sold_today' => $item->sold_today,
             ]);
+        });
     }
 
     private function getStaffToday(Carbon $today): \Illuminate\Support\Collection
@@ -106,31 +118,41 @@ class DashboardService
 
     private function getLast4WeeksRevenue(Carbon $today): \Illuminate\Support\Collection
     {
-        return collect(range(3, 0))->map(function ($i) use ($today) {
-            $start = $today->copy()->startOfWeek()->subWeeks($i);
-            $end   = $start->copy()->endOfWeek();
-            return [
-                'date'  => 'Tuần ' . (4 - $i),
-                'total' => Payment::whereBetween('paid_at', [$start, $end])->sum('amount'),
-            ];
+        $key = 'dashboard:last_4_weeks:' . $today->format('Y-W');
+
+        return cache()->remember($key, 300, function () use ($today) {
+            return collect(range(3, 0))->map(function ($i) use ($today) {
+                $start = $today->copy()->startOfWeek()->subWeeks($i);
+                $end   = $start->copy()->endOfWeek();
+                return [
+                    'date'  => 'Tuần ' . (4 - $i),
+                    'total' => Payment::whereBetween('paid_at', [$start, $end])->sum('amount'),
+                ];
+            });
         });
     }
 
     private function getRevenueThisMonth(Carbon $today): int
     {
-        return Payment::whereMonth('paid_at', $today->month)
-            ->whereYear('paid_at', $today->year)
-            ->sum('amount');
-    }
+        $key = 'dashboard:revenue_month:' . $today->format('Y-m');
 
+        return cache()->remember($key, 300, function () use ($today) {
+            return Payment::whereMonth('paid_at', $today->month)
+                ->whereYear('paid_at', $today->year)
+                ->sum('amount');
+        });
+    }
     private function getRevenueLastMonth(Carbon $today): int
     {
         $lastMonth = $today->copy()->subMonth();
-        return Payment::whereMonth('paid_at', $lastMonth->month)
-            ->whereYear('paid_at', $lastMonth->year)
-            ->sum('amount');
-    }
+        $key = 'dashboard:revenue_month:' . $lastMonth->format('Y-m');
 
+        return cache()->remember($key, 300, function () use ($lastMonth) {
+            return Payment::whereMonth('paid_at', $lastMonth->month)
+                ->whereYear('paid_at', $lastMonth->year)
+                ->sum('amount');
+        });
+    }
     private function getRevenueGrowth(Carbon $today): ?float
     {
         $thisMonth = $this->getRevenueThisMonth($today);

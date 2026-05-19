@@ -40,7 +40,7 @@ class GuestController extends Controller
 
     public function show(User $guest)
     {
-        abort_if($guest->role !== 'guest', 404);
+        $this->authorize('viewGuest', $guest);
 
         // Load thêm booking history
         $guest->load(['bookings' => fn($q) => $q->latest()->limit(5)]);
@@ -50,7 +50,7 @@ class GuestController extends Controller
 
     public function toggleActive(User $guest)
     {
-        abort_if($guest->role !== 'guest', 404);
+        $this->authorize('toggleGuest', $guest);
 
         $guest->update(['is_active' => !$guest->is_active]);
 
@@ -61,7 +61,7 @@ class GuestController extends Controller
 
     public function destroy(User $guest)
     {
-        abort_if($guest->role !== 'guest', 404);
+        $this->authorize('deleteGuest', $guest);
 
         $guest->delete();
 
