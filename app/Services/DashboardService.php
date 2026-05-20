@@ -49,9 +49,10 @@ class DashboardService
 
     private function getBookingsToday(Carbon $today): int
     {
-        return Booking::ofDate($today)
-            ->active()
-            ->count();
+        $key = 'dashboard:bookings_today:' . $today->format('Y-m-d');
+        return cache()->remember($key, 300, function() use ($today) {
+            return Booking::ofDate($today)->active()->count();
+        });
     }
 
     private function getReviewsPending(): int
