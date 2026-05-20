@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Events\BookingConfirmed;
 use App\Models\Booking;
 use Illuminate\Support\Facades\Auth;
 
@@ -21,7 +22,12 @@ class BookingObserver
                 'action'   => $booking->status,
                 'note'     => null,
             ]);
+            
+            if ($booking->status === 'confirmed'){
+                BookingConfirmed::dispatch($booking);
+            }
         }
+        
     }
 
 }
